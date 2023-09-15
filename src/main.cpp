@@ -4,13 +4,15 @@ Copyright (C), 2022-2023, Sara Echeverria (bl33h)
 FileName: main.cpp
 @version: I
 Creation: 12/08/2023
-Last modification: 17/08/2023
+Last modification: 15/09/2023
 *Some parts were made using the AIs Bard and ChatGPT
 ------------------------------------------------------------------------------*/
 
 #include "colors.h"
 #include "faces.h"
 #include "triangles.h"
+#include "trianglefill.cpp"
+#include "barycentric.cpp"
 #include <iostream>
 #include <SDL2/SDL.h>
 #include <vector>
@@ -46,8 +48,7 @@ void trianglesDrawing(const glm::vec3& v1, const glm::vec3& v2, const glm::vec3&
 }
 
 // Function to draw the model using lines, vertices, and triangles
-void drawModel(const std::vector<glm::vec3>& vertex) 
-{   
+void drawModel(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces) {
     // Clear the renderer with the background color
     SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     SDL_RenderClear(renderer);
@@ -55,17 +56,35 @@ void drawModel(const std::vector<glm::vec3>& vertex)
     // Set the renderer color for drawing lines
     SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
 
-    // Iterate through vertices and draw triangles using lines
-    for (size_t i = 0; i < vertex.size(); i += 3) {
-        if (i + 2 < vertex.size()) {
-            glm::vec3 v1 = vertex[i];
-            glm::vec3 v2 = vertex[i + 1];
-            glm::vec3 v3 = vertex[i + 2];
+    // Iterate through faces and draw filled triangles
+    for (const auto& face : faces) {
+        if (face.vertexIndices.size() == 3) {
+            glm::vec3 v1 = vertex[face.vertexIndices[0]];
+            glm::vec3 v2 = vertex[face.vertexIndices[1]];
+            glm::vec3 v3 = vertex[face.vertexIndices[2]];
             int offsetX = windowWidth / 2;
             int offsetY = windowHeight / 1.5;
-            trianglesDrawing(v1 + glm::vec3(offsetX, offsetY, 0), v2 + glm::vec3(offsetX, offsetY, 0), v3 + glm::vec3(offsetX, offsetY, 0));
+
+            // Rellenar el triángulo
+            Vertex vertex1;
+            vertex1.position = v1 + glm::vec3(offsetX, offsetY, 0);
+            Vertex vertex2;
+            vertex2.position = v2 + glm::vec3(offsetX, offsetY, 0);
+            Vertex vertex3;
+            vertex3.position = v3 + glm::vec3(offsetX, offsetY, 0);
+
+            std::vector<Fragment> fragments = triangleFill(vertex1, vertex2, vertex3);
+
+            // Dibujar los fragmentos
+            for (const auto& fragment : fragments) {
+                SDL_SetRenderDrawColor(renderer, fragment.color.r, fragment.color.g, fragment.color.b, fragment.color.a);
+                SDL_RenderDrawPoint(renderer, fragment.x, fragment.y);
+            }
         }
     }
+
+    // Present the renderer
+    SDL_RenderPresent(renderer);
 }
 
 // Function to load a 3D object from an OBJ file
@@ -201,7 +220,7 @@ int main() {
 
     // Draw the initial model
     SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
-    drawModel(vertexArray);
+    drawModel(vertexArray, faces);
     SDL_RenderPresent(renderer);
 
     // Main loop for rendering and interaction
@@ -246,7 +265,7 @@ int main() {
         }
 
         // Draw the rotated model
-        drawModel(rotatedVertexArray);
+        drawModel(rotatedVertexArray,faces);
         SDL_RenderPresent(renderer);
     }
 
