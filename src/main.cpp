@@ -23,7 +23,7 @@ Last modification: 15/09/2023
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// Window dimentions and render
+// Window dimensions and render
 const int windowWidth = 900;
 const int windowHeight = 900;
 SDL_Renderer* renderer = nullptr;
@@ -31,6 +31,35 @@ SDL_Renderer* renderer = nullptr;
 // Background and drawing colors
 Color clearColor(111, 99, 143, 0);
 Color currentColor(255, 255, 255, 255);
+
+// Function to calculate the normals of the vertices
+void calculateNormals(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces, std::vector<glm::vec3>& normals) {
+    normals.clear();
+    normals.resize(vertex.size(), glm::vec3(0.0f));
+
+    for (const auto& face : faces) {
+        if (face.vertexIndices.size() == 3) {
+            glm::vec3 v1 = vertex[face.vertexIndices[0]];
+            glm::vec3 v2 = vertex[face.vertexIndices[1]];
+            glm::vec3 v3 = vertex[face.vertexIndices[2]];
+
+            glm::vec3 normal = glm::normalize(glm::cross(v2 - v1, v3 - v1));
+
+            for (int i = 0; i < 3; ++i) {
+                normals[face.vertexIndices[i]] += normal;
+            }
+        }
+    }
+
+    for (auto& normal : normals) {
+        normal = glm::normalize(normal);
+    }
+}
+
+// Function to calculate the light intensity
+float calculateLightIntensity(const glm::vec3& normal, const glm::vec3& lightDirection) {
+    return glm::dot(normal, lightDirection);
+}
 
 // Function to draw lines between two points
 void linesDrawing(const glm::vec3& start, const glm::vec3& end) 
@@ -48,7 +77,7 @@ void trianglesDrawing(const glm::vec3& v1, const glm::vec3& v2, const glm::vec3&
 }
 
 // Function to draw the model using lines, vertices, and triangles
-void drawModel(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces) {
+void drawModel(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces, const glm::vec3& lightDirection) {
     // Clear the renderer with the background color
     SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     SDL_RenderClear(renderer);
@@ -56,26 +85,49 @@ void drawModel(const std::vector<glm::vec3>& vertex, const std::vector<Face>& fa
     // Set the renderer color for drawing lines
     SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
 
+    // Calculate normals for vertices
+    std::vector<glm::vec3> normals;
+    calculateNormals(vertex, faces, normals);
+
     // Iterate through faces and draw filled triangles
     for (const auto& face : faces) {
         if (face.vertexIndices.size() == 3) {
             glm::vec3 v1 = vertex[face.vertexIndices[0]];
             glm::vec3 v2 = vertex[face.vertexIndices[1]];
             glm::vec3 v3 = vertex[face.vertexIndices[2]];
+
+            // Calculate normal for this face (average of vertex normals)
+            glm::vec3 faceNormal = (normals[face.vertexIndices[0]] + normals[face.vertexIndices[1]] + normals[face.vertexIndices[2]]) / 3.0f;
+
+            // Calculate light intensity for this face
+            float intensity = calculateLightIntensity(faceNormal, lightDirection);
+
+            // Convert intensity to grayscale color
+            unsigned char gray = static_cast<unsigned char>(intensity * 255.0f);
+            Color grayColor(gray, gray, gray, 255);
+
             int offsetX = windowWidth / 2;
             int offsetY = windowHeight / 1.5;
 
-            // Rellenar el triángulo
+            // Fill the triangle with the calculated color
             Vertex vertex1;
             vertex1.position = v1 + glm::vec3(offsetX, offsetY, 0);
+            vertex1.color = grayColor;
+            vertex1.intensity = intensity;
+
             Vertex vertex2;
             vertex2.position = v2 + glm::vec3(offsetX, offsetY, 0);
+            vertex2.color = grayColor;
+            vertex2.intensity = intensity;
+
             Vertex vertex3;
             vertex3.position = v3 + glm::vec3(offsetX, offsetY, 0);
+            vertex3.color = grayColor;
+            vertex3.intensity = intensity;
 
             std::vector<Fragment> fragments = triangleFill(vertex1, vertex2, vertex3);
 
-            // Dibujar los fragmentos
+            // Draw the fragments
             for (const auto& fragment : fragments) {
                 SDL_SetRenderDrawColor(renderer, fragment.color.r, fragment.color.g, fragment.color.b, fragment.color.a);
                 SDL_RenderDrawPoint(renderer, fragment.x, fragment.y);
@@ -218,9 +270,15 @@ int main() {
     SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     SDL_RenderClear(renderer);
 
+    // Define la dirección de la fuente de luz (ajústala según tus necesidades)
+    glm::vec3 lightDirection(0.0f, -1.0f, 0.0f);
+
     // Draw the initial model
     SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
-    drawModel(vertexArray, faces);
+
+    // Llama a drawModel con los argumentos requeridos
+    drawModel(vertexArray, faces, lightDirection);
+
     SDL_RenderPresent(renderer);
 
     // Main loop for rendering and interaction
@@ -265,7 +323,7 @@ int main() {
         }
 
         // Draw the rotated model
-        drawModel(rotatedVertexArray,faces);
+        drawModel(rotatedVertexArray, faces, lightDirection);
         SDL_RenderPresent(renderer);
     }
 
