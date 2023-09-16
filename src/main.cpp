@@ -4,24 +4,29 @@ Copyright (C), 2022-2023, Sara Echeverria (bl33h)
 FileName: main.cpp
 @version: I
 Creation: 12/08/2023
-Last modification: 15/09/2023
+Last modification: 16/09/2023
 *Some parts were made using the AIs Bard and ChatGPT
 ------------------------------------------------------------------------------*/
 
-#include "colors.h"
-#include "faces.h"
-#include "triangles.h"
-#include "trianglefill.cpp"
-#include "barycentric.cpp"
-#include <iostream>
 #include <SDL2/SDL.h>
-#include <vector>
-#include <array>
-#include <fstream>
-#include <sstream>
-#include <string>
+#include <iostream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <sstream>
+#include <vector>
+#include <cassert>
+#include "barycentric.cpp"
+#include "framebuffer.cpp"
+#include "border.cpp"
+#include "trianglefill.cpp"
+#include "colors.h"
+#include "framebuffer.h"
+#include "fragment.h"
+#include "border.h"
+#include "print.h"
+#include "shaders.h"
+#include "trianglefill.h"
+#include "triangles.h"
 
 // Define a global variable for the current color
 Color currentColor;
@@ -65,266 +70,189 @@ std::vector<std::vector<Vertex>> initialGathering(const std::vector<Vertex>& tra
     return placedVertex;
 }
 
-// Function to draw triangles using lines between three vertices
-void trianglesDrawing(const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3) 
+// Function to convert vertices into fragments
+std::vector<Fragment> pixelsConvertion(const std::vector<std::vector<Vertex>>& placedVertex) 
 {
-    linesDrawing(v1, v2);
-    linesDrawing(v2, v3);
-    linesDrawing(v3, v1);
-}
+    // Create a vector to store fragments
+    std::vector<Fragment> parallelFragments;
 
-// Function to draw the model using lines, vertices, and triangles
-void drawModel(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces, const glm::vec3& lightDirection) {
-    // Clear the renderer with the background color
-    SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-    SDL_RenderClear(renderer);
+    // Loop through the groups of vertices and convert them to fragments
+    for (size_t i = 0; i < placedVertex.size(); ++i) 
+    {
+        std::vector<Fragment> pixeledTriangle = triangle(
+            placedVertex[i][0],
+            placedVertex[i][1],
+            placedVertex[i][2]
+        );
 
-    // Set the renderer color for drawing lines
-    SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
+        // Ensure thread safety while adding fragments
+        std::lock_guard<std::mutex> lock(std::mutex);
 
-    // Calculate normals for vertices
-    std::vector<glm::vec3> normals;
-    calculateNormals(vertex, faces, normals);
-
-    // Iterate through faces and draw filled triangles
-    for (const auto& face : faces) {
-        if (face.vertexIndices.size() == 3) {
-            glm::vec3 v1 = vertex[face.vertexIndices[0]];
-            glm::vec3 v2 = vertex[face.vertexIndices[1]];
-            glm::vec3 v3 = vertex[face.vertexIndices[2]];
-
-            // Calculate normal for this face (average of vertex normals)
-            glm::vec3 faceNormal = (normals[face.vertexIndices[0]] + normals[face.vertexIndices[1]] + normals[face.vertexIndices[2]]) / 3.0f;
-
-            // Calculate light intensity for this face
-            float intensity = calculateLightIntensity(faceNormal, lightDirection);
-
-            // Convert intensity to grayscale color
-            unsigned char gray = static_cast<unsigned char>(intensity * 255.0f);
-            Color grayColor(gray, gray, gray, 255);
-
-            int offsetX = windowWidth / 2;
-            int offsetY = windowHeight / 1.5;
-
-            // Fill the triangle with the calculated color
-            Vertex vertex1;
-            vertex1.position = v1 + glm::vec3(offsetX, offsetY, 0);
-            vertex1.color = grayColor;
-            vertex1.intensity = intensity;
-
-            Vertex vertex2;
-            vertex2.position = v2 + glm::vec3(offsetX, offsetY, 0);
-            vertex2.color = grayColor;
-            vertex2.intensity = intensity;
-
-            Vertex vertex3;
-            vertex3.position = v3 + glm::vec3(offsetX, offsetY, 0);
-            vertex3.color = grayColor;
-            vertex3.intensity = intensity;
-
-            std::vector<Fragment> fragments = triangleFill(vertex1, vertex2, vertex3);
-
-            // Draw the fragments
-            for (const auto& fragment : fragments) {
-                SDL_SetRenderDrawColor(renderer, fragment.color.r, fragment.color.g, fragment.color.b, fragment.color.a);
-                SDL_RenderDrawPoint(renderer, fragment.x, fragment.y);
-            }
+        // Add the fragments to the vector
+        for (const auto& fragment : pixeledTriangle) 
+        {
+            parallelFragments.push_back(fragment);
         }
     }
 
-    // Present the renderer
-    SDL_RenderPresent(renderer);
+    return parallelFragments;
 }
 
-// Function to load a 3D object from an OBJ file
-bool load3Dobject(const std::string& path, std::vector<glm::vec3>& outputVertex, std::vector<Face>& out_faces) 
-{   
-    // Open the OBJ file
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cout << "Error: Couldn't open file " << path << std::endl;
+// Function to initialize SDL and create a window
+bool init() 
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::cout << "!error: init failed, please try again" << std::endl;
         return false;
     }
 
-    // Temporary storage for vertices and faces
-    std::vector<glm::vec3> temporaryVertex;
-    std::vector<std::array<int, 3>> temp_faces;
-
-    // Read through the file line by line
-    std::string line;
-    while (std::getline(file, line)) 
+    // Create an SDL window
+    window = SDL_CreateWindow("3D Model's Flat Shading", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWith, windowHeight, SDL_WINDOW_SHOWN);
+    if (!window) 
     {
-        std::istringstream iss(line);
-        std::string type;
-        iss >> type;
-
-        // Parse vertex data
-        if (type == "v") {
-            glm::vec3 vertex;
-            iss >> vertex.x >> vertex.y >> vertex.z;
-            temporaryVertex.push_back(vertex);
-        
-        // Parse face data
-        } else if (type == "f") {
-            std::array<int, 3> faceID{};
-            for (int i = 0; i < 3; i++) {
-                std::string faceIndexStr;
-                iss >> faceIndexStr;
-                faceID[i] = std::stoi(faceIndexStr) - 1;
-            }
-            temp_faces.push_back(faceID);
-        }
+        std::cout << "!error: couldn't create SDL window" << std::endl;
+        SDL_Quit();
+        return false;
     }
 
-    // Store the parsed data into output vectors
-    outputVertex = temporaryVertex;
-    out_faces.reserve(temp_faces.size());
-    for (const auto& face : temp_faces) {
-        out_faces.push_back({ face });
+    // Create an SDL renderer
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) 
+    {
+        std::cout << "!error: couldn't create SDL renderer" << std::endl;
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
     }
 
     return true;
 }
 
-// Function to set up the vertex array for rendering
-std::vector<glm::vec3> setupVertexArray(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces)
-{    
-    // Scale factor for vertices
-    float scale = 40.0f;
-
-    // Initialize vertex array
-    std::vector<glm::vec3> vertexArray;
-
-    // Process object's faces
-    for (const auto& face : faces)
-    {   
-        // Get vertex positions and scale
-        glm::vec3 vertexPosition1 = vertex[face.vertexIndices[0]];
-        glm::vec3 vertexPosition2 = vertex[face.vertexIndices[1]];
-        glm::vec3 vertexPosition3 = vertex[face.vertexIndices[2]];
-        glm::vec3 vertexScaled1 = glm::vec3(vertexPosition1.x * scale, -vertexPosition1.y * scale, vertexPosition1.z * scale);
-        glm::vec3 vertexScaled2 = glm::vec3(vertexPosition2.x * scale, -vertexPosition2.y * scale, vertexPosition2.z * scale);
-        glm::vec3 vertexScaled3 = glm::vec3(vertexPosition3.x * scale, -vertexPosition3.y * scale, vertexPosition3.z * scale);
-
-        // Add scaled vertices to the vertex array
-        vertexArray.push_back(vertexScaled1);
-        vertexArray.push_back(vertexScaled2);
-        vertexArray.push_back(vertexScaled3);
+// Function to apply shading to each fragment
+void shadingEachFragment( std::vector<Fragment>& parallelFragments) 
+{
+    for (size_t i = 0; i < parallelFragments.size(); ++i) {
+        // Apply fragment shader to each fragment
+        const Fragment& fragment = fragmentShader(parallelFragments[i]);
+        point(fragment);
     }
-
-    return vertexArray;
 }
 
-int main() {
-    // Initialize SDL
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) 
+// Function to render the scene
+void render(const std::vector<glm::vec3>& VBO, const ShaderData& ShaderData) 
+{
+    // Transform vertices, group them into triangles, and convert to fragments
+    std::vector<Vertex> transformedVertex = shadingEachVertex(VBO, ShaderData);
+    std::vector<std::vector<Vertex>> placedVertex = initialGathering(transformedVertex);
+    std::vector<Fragment> parallelFragments = pixelsConvertion(placedVertex);
+
+    // Apply shading to each fragment
+    shadingEachFragment(parallelFragments);
+}
+
+// Function to create a viewport matrix
+glm::mat4 createViewportMatrix(size_t screenWidth, size_t screenHeight) 
+{
+    glm::mat4 viewport = glm::mat4(1.0f);
+    viewport = glm::scale(viewport, glm::vec3(screenWidth / 2.0f, screenHeight / 2.0f, 0.5f));
+    viewport = glm::translate(viewport, glm::vec3(1.0f, 1.0f, 0.5f));
+    return viewport;
+}
+
+int main(int argc, char* argv[]) 
+{
+    // Initialize SDL and create a window
+    if (!init()) 
     {
-        std::cout << "Error: SDL_Init failed." << std::endl;
         return 1;
     }
 
-    // Create SDL window
-    SDL_Window* window = SDL_CreateWindow("3dModelLoader", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_SHOWN);
-    if (!window) 
-    {
-        std::cout << "Error: Could not create SDL window." << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    // Create SDL renderer
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (!renderer) 
-    {
-        std::cout << "Error: Could not create SDL renderer." << std::endl;
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    // Load 3D model from OBJ file (here you can change the path in case you did not place the file in the objects folder)
-    std::string filePath = "src/objects/spaceship.obj";
-    std::cout << "Loading OBJ file: " << filePath << std::endl;
-
-    // Initialize vectors to store vertex and face data
-    std::vector<glm::vec3> vertex;
+    // Load 3D model data
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> normals;
     std::vector<Face> faces;
+    std::vector<glm::vec3> vertexBufferObject;
+    std::string filePath = "src/objects/spaceship.obj"; // 3d model file path
+    float angle = 0.0f;
+    float verticalAngle = 0.0f;
 
-    // Load the 3D model from the OBJ file
-    if (!load3Dobject(filePath, vertex, faces)) 
+    // Load 3D model from file
+    if (!triangleFiller(filePath, vertices, normals, faces)) 
     {
         std::cout << "Error: Could not load OBJ file." << std::endl;
+
+        // Clean up SDL resources
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
     }
 
-    // Set up the vertex array for rendering
-    std::vector<glm::vec3> vertexArray = setupVertexArray(vertex, faces);
-
-    // Clear the renderer and set drawing color
-    SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-    SDL_RenderClear(renderer);
-
-    // Define la dirección de la fuente de luz (ajústala según tus necesidades)
-    glm::vec3 lightDirection(0.0f, -1.0f, 0.0f);
-
-    // Draw the initial model
-    SDL_SetRenderDrawColor(renderer, currentColor.r, currentColor.g, currentColor.b, currentColor.a);
-
-    // Llama a drawModel con los argumentos requeridos
-    drawModel(vertexArray, faces, lightDirection);
-
-    SDL_RenderPresent(renderer);
-
-    // Main loop for rendering and interaction
-    bool running = true;
-    SDL_Event event;
-    float angle = 0.0f;
-
-    while (running) {
-
-        // Check for events
-        while (SDL_PollEvent(&event)) 
+    // Prepare vertex buffer object for rendering
+    for (const auto& face : faces)
+    {
+        for (int i = 0; i < 3; ++i)
         {
-            // Exit the loop if the window is closed
-            if (event.type == SDL_QUIT) 
-            {
+            glm::vec3 vertexPosition = vertices[face.vertexIndices[i]];
+            glm::vec3 vertexNormal = normals[face.normalIndices[i]];
+            vertexBufferObject.push_back(vertexPosition);
+            vertexBufferObject.push_back(vertexNormal);
+        }
+    }
+
+    // Initialize shader data and transformation matrices
+    ShaderData ShaderData;
+    glm::vec3 translationVector(0.0f, 0.0f, 0.0f);
+    glm::vec3 scaleFactor(1.0f, 1.0f, 1.0f);
+    glm::mat4 translation = glm::translate(glm::mat4(1.0f), translationVector);
+    glm::mat4 scale = glm::scale(glm::mat4(1.0f), scaleFactor);
+
+    // Initialize Point of View (POV) parameters
+    Pov Pov;
+    Pov.PovPosition = glm::vec3(0.0f, 0.0f, 20.0f);
+    Pov.targetPosition = glm::vec3(0.0f, 0.0f, 0.0f);
+    Pov.upVector = glm::vec3(0.0f, 1.0f, 0.0f);
+
+    // Set up projection matrix
+    float fovRadians = glm::radians(45.0f);
+    float aspectRatio = static_cast<float>(windowWith) / static_cast<float>(windowHeight);
+    float nearClip = 0.1f;
+    float farClip = 100.0f;
+    ShaderData.projection = glm::perspective(fovRadians, aspectRatio, nearClip, farClip);
+    ShaderData.viewport = createViewportMatrix(windowWith, windowHeight);
+
+    bool running = true;
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
                 running = false;
             }
         }
 
-        // Clear the renderer
-        SDL_SetRenderDrawColor(renderer, clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-        SDL_RenderClear(renderer);
-
-        // Update rotation angle
+        // Update transformation matrices for rendering
         angle += 0.01f;
+        verticalAngle += 0.01f;
+        glm::mat4 rotationMatrixHorizontal = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 rotationMatrixVertical = glm::rotate(glm::mat4(1.0f), verticalAngle, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 combinedRotationMatrix = rotationMatrixVertical * rotationMatrixHorizontal;
+        ShaderData.model = translation * combinedRotationMatrix * scale;
+        ShaderData.view = glm::lookAt(
+            Pov.PovPosition,
+            Pov.targetPosition,
+            Pov.upVector     
+        );
 
-        // Create a rotation matrix around the Y-axis
-        glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 1.0f, 0.0f));
-
-        // Create a rotation matrix around the X-axis (vertical rotation)
-        glm::mat4 rotationMatrixVertical = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(1.0f, 0.0f, 0.0f));
-
-        // Combine the rotation matrices for horizontal and vertical rotations
-        glm::mat4 combinedRotationMatrix = rotationMatrixVertical * rotationMatrix;
-
-        // Apply combined rotation to each vertex in the vertex array
-        std::vector<glm::vec3> rotatedVertexArray;
-        for (const auto& vertex : vertexArray) 
-        {
-            glm::vec4 rotatedVertex = combinedRotationMatrix * glm::vec4(vertex, 1.0f);
-            rotatedVertexArray.push_back(glm::vec3(rotatedVertex));
-        }
-
-        // Draw the rotated model
-        drawModel(rotatedVertexArray, faces, lightDirection);
-        SDL_RenderPresent(renderer);
+        // Render the scene
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        clearFramebuffer();
+        setColor(Color(255, 255, 255));
+        render(vertexBufferObject, ShaderData);
+        renderBuffer(renderer);
     }
 
-    // Clean up and exit
+    // Clean up SDL resources
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

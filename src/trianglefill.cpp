@@ -4,60 +4,72 @@ Copyright (C), 2022-2023, Sara Echeverria (bl33h)
 FileName: trianglefill.cpp
 @version: I
 Creation: 22/08/2023
-Last modification: 15/09/2023
+Last modification: 16/09/2023
 *Some parts were made using the AIs Bard and ChatGPT
 ------------------------------------------------------------------------------*/
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <array>
+#include <cstring>
+#include <algorithm>
+#include <glm/glm.hpp>
 #include "trianglefill.h"
 
-glm::vec3 barycentricCoordinates(const glm::ivec2& P, const glm::vec3& A, const glm::vec3& B, const glm::vec3& C);
+// Function to parse an OBJ file and extract its vertices, normals, and faces
+bool triangleFiller(const std::string& path, std::vector<glm::vec3>& out_vertices, std::vector<glm::vec3>& out_normals, std::vector<Face>& out_faces)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        std::cout << "Failed to open the file: " << path << std::endl;
+        return false;
+    }
 
-std::vector<Fragment> triangleFill(const Vertex& a, const Vertex& b, const Vertex& c) {
-    std::vector<Fragment> fragments;
+    std::string line;
+    while (std::getline(file, line))
+    {
+        std::istringstream iss(line);
+        std::string lineHeader;
+        iss >> lineHeader;
 
-    // Encontrar las coordenadas barycentricas del triángulo
-    glm::vec3 A = a.position;
-    glm::vec3 B = b.position;
-    glm::vec3 C = c.position;
-    
-    float minX = std::min(std::min(A.x, B.x), C.x);
-    float minY = std::min(std::min(A.y, B.y), C.y);
-    float maxX = std::max(std::max(A.x, B.x), C.x);
-    float maxY = std::max(std::max(A.y, B.y), C.y);
-
-    for (int y = static_cast<int>(std::ceil(minY)); y <= static_cast<int>(std::floor(maxY)); ++y) {
-        for (int x = static_cast<int>(std::ceil(minX)); x <= static_cast<int>(std::floor(maxX)); ++x) {
-            if (x < 0 || y < 0 || y >= SCREEN_HEIGHT || x >= SCREEN_WIDTH)
-                continue;
-
-            glm::ivec2 P(x, y);
-            glm::vec3 barycentric = barycentricCoordinates(P, A, B, C);
-            float w = barycentric.x;
-            float v = barycentric.y;
-            float u = barycentric.z;
-
-            if (u >= 0 && v >= 0 && w >= 0) {
-                // El punto P está dentro del triángulo
-                double z = a.position.z * w + b.position.z * v + c.position.z * u;
-
-                // Interpolar atributos (en este caso, colores)
-                Color interpolatedColor = a.color * w + b.color * v + c.color * u;
-                float intensity = a.intensity * w + b.intensity * v + c.intensity * u;
-
-                if (intensity > 0) {
-                    // Asegúrate de que la intensidad sea positiva
-                    Fragment fragment{
-                        static_cast<uint16_t>(P.x),
-                        static_cast<uint16_t>(P.y),
-                        z,
-                        interpolatedColor,
-                        intensity
-                    };
-                    fragments.push_back(fragment);
-                }
+        if (lineHeader == "v")
+        {
+            // Parse vertex data and add it to the out_vertices vector
+            glm::vec3 vertex;
+            iss >> vertex.x >> vertex.y >> vertex.z;
+            out_vertices.push_back(vertex);
+        }
+        else if (lineHeader == "vn")
+        {
+            // Parse normal data and add it to the out_normals vector
+            glm::vec3 normal;
+            iss >> normal.x >> normal.y >> normal.z;
+            out_normals.push_back(normal);
+        }
+        else if (lineHeader == "f")
+        {
+            // Parse face data and add it to the out_faces vector
+            Face face;
+            for (int i = 0; i < 3; ++i)
+            {
+                std::string faceData;
+                iss >> faceData;
+                // Replace '/' with space to separate vertex and normal indices
+                std::replace(faceData.begin(), faceData.end(), '/', ' ');
+                std::istringstream faceDataIss(faceData);
+                int temp;
+                faceDataIss >> face.vertexIndices[i] >> temp >> face.normalIndices[i];
+                // Adjust indices to be zero-based
+                face.vertexIndices[i]--;
+                face.normalIndices[i]--;
             }
+            out_faces.push_back(face);
         }
     }
 
-    return fragments;
+    return true;
 }
