@@ -23,49 +23,46 @@ Last modification: 15/09/2023
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// Window dimensions and render
-const int windowWidth = 900;
-const int windowHeight = 900;
-SDL_Renderer* renderer = nullptr;
+// Define a global variable for the current color
+Color currentColor;
 
-// Background and drawing colors
-Color clearColor(111, 99, 143, 0);
-Color currentColor(255, 255, 255, 255);
-
-// Function to calculate the normals of the vertices
-void calculateNormals(const std::vector<glm::vec3>& vertex, const std::vector<Face>& faces, std::vector<glm::vec3>& normals) {
-    normals.clear();
-    normals.resize(vertex.size(), glm::vec3(0.0f));
-
-    for (const auto& face : faces) {
-        if (face.vertexIndices.size() == 3) {
-            glm::vec3 v1 = vertex[face.vertexIndices[0]];
-            glm::vec3 v2 = vertex[face.vertexIndices[1]];
-            glm::vec3 v3 = vertex[face.vertexIndices[2]];
-
-            glm::vec3 normal = glm::normalize(glm::cross(v2 - v1, v3 - v1));
-
-            for (int i = 0; i < 3; ++i) {
-                normals[face.vertexIndices[i]] += normal;
-            }
-        }
-    }
-
-    for (auto& normal : normals) {
-        normal = glm::normalize(normal);
-    }
-}
-
-// Function to calculate the light intensity
-float calculateLightIntensity(const glm::vec3& normal, const glm::vec3& lightDirection) {
-    return glm::dot(normal, lightDirection);
-}
-
-// Function to draw lines between two points
-void linesDrawing(const glm::vec3& start, const glm::vec3& end) 
+// Function to set the current color
+void setColor(const Color& color) 
 {
-    SDL_RenderDrawLine(renderer, static_cast<int>(start.x), static_cast<int>(start.y),
-    static_cast<int>(end.x), static_cast<int>(end.y));
+    currentColor = color;
+}
+
+// Function to transform each vertex using a shader
+std::vector<Vertex> shadingEachVertex(const std::vector<glm::vec3>& VBO, const ShaderData& ShaderData) 
+{
+    // Create a vector to store the transformed vertices
+    std::vector<Vertex> transformedVertex(VBO.size() / 2);
+
+    // Loop through the input vertices and apply the vertex shader
+    for (size_t i = 0; i < VBO.size() / 2; ++i) {
+        Vertex vertex = { VBO[i * 2], VBO[i * 2 + 1] };
+        transformedVertex[i] = vertexShader(vertex, ShaderData);
+    }
+
+    return transformedVertex;
+}
+
+// Function to gather initial vertices into triangles
+std::vector<std::vector<Vertex>> initialGathering(const std::vector<Vertex>& transformedVertex) 
+{
+    // Create a vector to store groups of vertices representing triangles
+    std::vector<std::vector<Vertex>> placedVertex(transformedVertex.size() / 3);
+
+    // Loop through the transformed vertices and group them into triangles
+    for (size_t i = 0; i < transformedVertex.size() / 3; ++i) 
+    {
+        Vertex edge1 = transformedVertex[3 * i];
+        Vertex edge2 = transformedVertex[3 * i + 1];
+        Vertex edge3 = transformedVertex[3 * i + 2];
+        placedVertex[i] = { edge1, edge2, edge3 };
+    }
+
+    return placedVertex;
 }
 
 // Function to draw triangles using lines between three vertices
