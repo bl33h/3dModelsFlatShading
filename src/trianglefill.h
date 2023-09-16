@@ -9,12 +9,22 @@ Last modification: 15/09/2023
 ------------------------------------------------------------------------------*/
 
 #pragma once
-#include <vector>
 #include <glm/glm.hpp>
-#include "fragment.h"
-#include "vertex.h"
-#include "framebuffer.h"
+#include <array>
+#include <vector>
 
-extern glm::vec3 L;
+// Structure representing a face in the OBJ file
+struct Face
+{
+    std::array<int, 3> vertexIndices;  // Indices of vertices for the face
+    std::array<int, 3> normalIndices;  // Indices of normals for the face
+};
 
-std::vector<Fragment> triangleFill(const Vertex& a, const Vertex& b, const Vertex& c);
+// Function to parse an OBJ file and extract its vertices, normals, and faces
+bool triangleFiller
+(
+    const std::string& path,
+    std::vector<glm::vec3>& out_vertices,
+    std::vector<glm::vec3>& out_normals,
+    std::vector<Face>& out_faces
+);

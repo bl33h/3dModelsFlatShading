@@ -8,21 +8,99 @@ Last modification: 15/09/2023
 *Some parts were made using the AIs Bard and ChatGPT
 ------------------------------------------------------------------------------*/
 
-glm::vec3 barycentricCoordinates(const glm::ivec2& P, const glm::vec3& A, const glm::vec3& B, const glm::vec3& C) {
+#include "triangles.h"
 
-    glm::vec2 v0 = glm::vec2(A.x, A.y);
-    glm::vec2 v1 = glm::vec2(B.x, B.y);
-    glm::vec2 v2 = glm::vec2(C.x, C.y);
+// Define a light vector L for shading
+glm::vec3 L = glm::vec3(0.0f, 0.0f, 1.0f);
 
-    glm::vec2 v01 = v1 - v0;
-    glm::vec2 v02 = v2 - v0;
-    glm::vec2 vp = glm::vec2(P.x, P.y) - v0;
+// Function to calculate barycentric coordinates of a point in a triangle
+std::pair<float, float> barycentricCoordinates(const glm::ivec2& P, const glm::vec3& A, const glm::vec3& B, const glm::vec3& C) 
+{
+    // Calculate barycentric coordinates using cross products
+    glm::vec3 bary = glm::cross(
+        glm::vec3(C.x - A.x, B.x - A.x, A.x - P.x),
+        glm::vec3(C.y - A.y, B.y - A.y, A.y - P.y)
+    );
 
-    float denominator = v01.x * v02.y - v01.y * v02.x;
+    // Check if the point is inside the triangle (abs(z) close to zero)
+    if (abs(bary.z) < 1) 
+    {
+        return std::make_pair(-1, -1); // Return invalid coordinates
+    }
 
-    float u = (v02.y * vp.x - v02.x * vp.y) / denominator;
-    float v = (-v01.y * vp.x + v01.x * vp.y) / denominator;
-    float w = 1.0f - u - v;
+    // Calculate and return valid barycentric coordinates
+    return std::make_pair
+    (
+        bary.y / bary.z,
+        bary.x / bary.z
+    );
+}
 
-    return glm::vec3(u, v, w);
+// Function to rasterize a triangle and generate fragments
+std::vector<Fragment> triangle(const Vertex& a, const Vertex& b, const Vertex& c) 
+{
+    std::vector<Fragment> fragments;
+    glm::vec3 A = a.position;
+    glm::vec3 B = b.position;
+    glm::vec3 C = c.position;
+
+    // Determine the bounding box of the triangle
+    float minX = std::min(std::min(A.x, B.x), C.x);
+    float minY = std::min(std::min(A.y, B.y), C.y);
+    float maxX = std::max(std::max(A.x, B.x), C.x);
+    float maxY = std::max(std::max(A.y, B.y), C.y);
+
+    // Loop through the bounding box and rasterize the triangle
+    for (int y = static_cast<int>(std::ceil(minY)); y <= static_cast<int>(std::floor(maxY)); ++y) 
+    {
+        for (int x = static_cast<int>(std::ceil(minX)); x <= static_cast<int>(std::floor(maxX)); ++x) 
+        {
+            if (x < 0 || y < 0 || y > windowHeight || x > windowWith)
+                continue;
+
+            // Create a point P at (x, y)
+            glm::ivec2 P(x, y);
+
+            // Calculate barycentric coordinates for P
+            auto barycentric = barycentricCoordinates(P, A, B, C);
+
+            // Extract barycentric coordinates
+            float w = 1 - barycentric.first - barycentric.second;
+            float v = barycentric.first;
+            float u = barycentric.second;
+
+            float epsilon = 1e-10;
+
+            // Check if P is inside the triangle using barycentric coordinates
+            if (w < epsilon || v < epsilon || u < epsilon)
+                continue;
+
+            // Interpolate the depth (z) and normal for P
+            double z = A.z * w + B.z * v + C.z * u;
+            glm::vec3 normal = glm::normalize
+            (
+                a.normal * w + b.normal * v + c.normal * u
+            ); 
+
+            // Calculate the intensity of the light on P
+            float intensity = glm::dot(normal, L);
+
+            // Discard fragments with negative intensity
+            if (intensity < 0)
+                continue;
+
+            // Create a fragment and add it to the list
+            fragments.push_back
+            (
+                Fragment{
+                    static_cast<uint16_t>(P.x),
+                    static_cast<uint16_t>(P.y),
+                    z,
+                    Color(205, 205, 205),
+                    intensity}
+            );
+        }
+    }
+
+    return fragments; // Return the list of fragments generated
 }

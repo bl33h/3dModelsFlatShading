@@ -8,12 +8,25 @@ Last modification: 10/08/2023
 *Some parts were made using the AIs Bard and ChatGPT
 ------------------------------------------------------------------------------*/
 
-#ifndef TRIANGLE_H
-#define TRIANGLE_H
-
+#pragma once
 #include <glm/glm.hpp>
+#include <vector>
 #include "colors.h"
-#include <SDL2/SDL.h>
+#include "border.h"
+#include "framebuffer.h"
 
-void drawTriangle(SDL_Renderer* renderer, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3, const Color& currentColor);
-#endif
+// Structure representing a vertex with position and normal
+struct Vertex 
+{
+    glm::vec3 position;  // Vertex position
+    glm::vec3 normal;    // Vertex normal
+};
+
+// External variable representing the light direction
+extern glm::vec3 L;
+
+// Function to calculate barycentric coordinates for a point within a triangle
+std::pair<float, float> barycentricCoordinates(const glm::ivec2& P, const glm::vec3& A, const glm::vec3& B, const glm::vec3& C);
+
+// Function to rasterize a triangle and return its fragments
+std::vector<Fragment> triangle(const Vertex& a, const Vertex& b, const Vertex& c);
