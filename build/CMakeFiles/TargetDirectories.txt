@@ -1,3 +1,0 @@
-/3dModelsFlatShading/build/CMakeFiles/EXEC.dir
-/3dModelsFlatShading/build/CMakeFiles/edit_cache.dir
-/3dModelsFlatShading/build/CMakeFiles/rebuild_cache.dir
